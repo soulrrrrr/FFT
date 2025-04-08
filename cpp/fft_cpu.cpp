@@ -2,11 +2,22 @@
 #include <vector>
 #include <chrono>
 #include <complex>
+#include <cmath>
 #include "io_utils.hpp"
 
-void my_fft(std::vector<std::complex<float>> &data)
+void fft_naive(size_t N, std::vector<std::complex<float>> &data, std::vector<std::complex<float>> &out)
 {
-    return;
+    for (int k = 0; k < N; k++)
+    {
+        std::complex<float> sum;
+        for (int n = 0; n < N; n++)
+        {
+            float angle = 2.0f * M_PI * k * n / N;
+            std::complex<float> w = std::polar(1.0f, -angle);
+            sum += data[n] * w;
+        }
+        out[k] = sum;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -17,18 +28,13 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // init data
-
+    // init data and output
     std::vector<std::complex<float>> data = read_complex_data(argv[1]);
     size_t N = data.size();
-
-    for (int i = 0; i < N; ++i)
-    {
-        data[i] = {float(i), 0.0f};
-    }
+    std::vector<std::complex<float>> out(N);
 
     auto start = std::chrono::high_resolution_clock::now();
-    my_fft(data);
+    fft_naive(N, data, out);
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<float> diff = end - start;
