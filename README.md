@@ -84,6 +84,13 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
         - use pre calculated cos/sin value
         - use avx commands
 
+### 4/9 1930-2130
+- identified bottleneck
+    - not using avx2 (%ymm)
+    - complex multiplication (w * b)
+    - bit_reverse
+- maybe read FFTW paper to see how to improve or using other algorithm?
+
 # To set up Python environment:
 python3 -m venv .venv
 source .venv/bin/activate

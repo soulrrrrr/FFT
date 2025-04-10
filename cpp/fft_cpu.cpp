@@ -43,20 +43,20 @@ void fft_cooley_tukey(size_t N, std::vector<std::complex<float>> &data, std::vec
     for (int len = 2; len <= N; len <<= 1)
     {
         int half = len / 2;
+        float angle = 2.0f * M_PI / len;
+        std::complex<float> w_step = std::polar(1.0f, -angle);
         for (int start = 0; start < N; start += len)
         {
             // do [start, start+len)
-            float angle = 2.0f * M_PI / len;
-            std::complex<float> w_step = std::polar(1.0f, -angle);
-            std::complex<float> w = std::polar(1.0f, 0.0f);
-            for (int i = 0; i < len / 2; i++)
+            std::complex<float> w{1.0f, 0.0f};
+            for (int i = 0; i < half; i++)
             {
                 // do start+i & start+i+half
                 std::complex<float> a = out[start + i];
                 std::complex<float> b = out[start + i + half];
                 out[start + i] = a + w * b;
                 out[start + i + half] = a - w * b;
-                w *= w_step;
+                w = w * w_step;
             }
         }
     }

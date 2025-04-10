@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -O3 -std=c++17 -march=native
+CXXFLAGS = -O3 -std=c++17 -march=native -g
 
 # Paths
 BIN_DIR = ../bin
