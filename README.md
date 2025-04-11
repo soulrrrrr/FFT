@@ -90,6 +90,34 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
     - complex multiplication (w * b)
     - bit_reverse
 - maybe read FFTW paper to see how to improve or using other algorithm?
+    - explore Stockham Auto-Sort FFT
+        - no need bit_reverse
+
+### 4/10 2230-0100
+- Read [FFTW Paper](https://www.fftw.org/fftw-paper-ieee.pdf)
+- Learn [Stockham Algorithm](http://wwwa.pikara.ne.jp/okojisan/otfft-en/stockham1.html)
+- Still doesn't know how to write stockham algorithm
+
+## 4/11 1030-1100
+- Stockham OK, but need to know how it calculates
+- [Reference](https://github.com/scientificgo/fft/blob/master/stockham.go)
+- ```
+    N=16      Time=0.000011s  FLOPS=30.34 MFLOPS
+    N=32      Time=0.000012s  FLOPS=67.66 MFLOPS
+    N=64      Time=0.000014s  FLOPS=134.22 MFLOPS
+    N=128     Time=0.000015s  FLOPS=304.59 MFLOPS
+    N=256     Time=0.000018s  FLOPS=557.86 MFLOPS
+    N=512     Time=0.000020s  FLOPS=1150.85 MFLOPS
+    N=1024    Time=0.000030s  FLOPS=1680.88 MFLOPS
+    N=2048    Time=0.000054s  FLOPS=2070.21 MFLOPS
+    N=4096    Time=0.000110s  FLOPS=2233.53 MFLOPS
+    N=8192    Time=0.000213s  FLOPS=2495.55 MFLOPS
+    N=16384   Time=0.000392s  FLOPS=2926.24 MFLOPS
+    N=32768   Time=0.000870s  FLOPS=2825.44 MFLOPS
+    N=65536   Time=0.001827s  FLOPS=2869.43 MFLOPS
+    N=131072  Time=0.003206s  FLOPS=3474.81 MFLOPS
+    N=262144  Time=0.006810s  FLOPS=3464.36 MFLOPS
+    ```
 
 # To set up Python environment:
 python3 -m venv .venv
