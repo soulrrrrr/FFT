@@ -88,7 +88,7 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
 - identified bottleneck
     - not using avx2 (%ymm)
     - complex multiplication (w * b)
-    - bit_reverse
+    - bit_reverse (about 15% of execution time)
 - maybe read FFTW paper to see how to improve or using other algorithm?
     - explore Stockham Auto-Sort FFT
         - no need bit_reverse
@@ -98,26 +98,31 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
 - Learn [Stockham Algorithm](http://wwwa.pikara.ne.jp/okojisan/otfft-en/stockham1.html)
 - Still doesn't know how to write stockham algorithm
 
-## 4/11 1030-1100
+## 4/11 1030-1100, 1400-1600
 - Stockham OK, but need to know how it calculates
 - [Reference](https://github.com/scientificgo/fft/blob/master/stockham.go)
+- Self-implemented, use result to find the pattern, but I think I didn't understand the crux
 - ```
-    N=16      Time=0.000011s  FLOPS=30.34 MFLOPS
-    N=32      Time=0.000012s  FLOPS=67.66 MFLOPS
-    N=64      Time=0.000014s  FLOPS=134.22 MFLOPS
-    N=128     Time=0.000015s  FLOPS=304.59 MFLOPS
-    N=256     Time=0.000018s  FLOPS=557.86 MFLOPS
-    N=512     Time=0.000020s  FLOPS=1150.85 MFLOPS
-    N=1024    Time=0.000030s  FLOPS=1680.88 MFLOPS
-    N=2048    Time=0.000054s  FLOPS=2070.21 MFLOPS
-    N=4096    Time=0.000110s  FLOPS=2233.53 MFLOPS
-    N=8192    Time=0.000213s  FLOPS=2495.55 MFLOPS
-    N=16384   Time=0.000392s  FLOPS=2926.24 MFLOPS
-    N=32768   Time=0.000870s  FLOPS=2825.44 MFLOPS
-    N=65536   Time=0.001827s  FLOPS=2869.43 MFLOPS
-    N=131072  Time=0.003206s  FLOPS=3474.81 MFLOPS
-    N=262144  Time=0.006810s  FLOPS=3464.36 MFLOPS
+    N=16      Time=0.000014s  FLOPS=23.58 MFLOPS
+    N=32      Time=0.000011s  FLOPS=72.04 MFLOPS
+    N=64      Time=0.000014s  FLOPS=137.26 MFLOPS
+    N=128     Time=0.000013s  FLOPS=337.40 MFLOPS
+    N=256     Time=0.000017s  FLOPS=612.30 MFLOPS
+    N=512     Time=0.000020s  FLOPS=1171.24 MFLOPS
+    N=1024    Time=0.000029s  FLOPS=1767.54 MFLOPS
+    N=2048    Time=0.000051s  FLOPS=2217.33 MFLOPS
+    N=4096    Time=0.000105s  FLOPS=2343.78 MFLOPS
+    N=8192    Time=0.000204s  FLOPS=2608.96 MFLOPS
+    N=16384   Time=0.000391s  FLOPS=2932.28 MFLOPS
+    N=32768   Time=0.000842s  FLOPS=2919.95 MFLOPS
+    N=65536   Time=0.001565s  FLOPS=3350.91 MFLOPS
+    N=131072  Time=0.003119s  FLOPS=3571.77 MFLOPS
+    N=262144  Time=0.006395s  FLOPS=3689.41 MFLOPS
     ```
+- improvements
+    - perf found complex resolve spent the most time (~ 50%)
+    - self complex type and mm256?
+    - explore radix 4 algorithm?
 
 # To set up Python environment:
 python3 -m venv .venv

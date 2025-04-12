@@ -56,8 +56,10 @@ void fft_cooley_tukey(size_t N, std::vector<std::complex<float>> &data, std::vec
                 std::complex<float> b = out[start + i + half];
                 out[start + i] = a + w * b;
                 out[start + i + half] = a - w * b;
+                // std::cout << start + i << " " << start + i + half << std::endl;
                 w = w * w_step;
             }
+            // std::cout << "---" << std::endl;
         }
     }
 }
@@ -68,25 +70,37 @@ void fft_stockham(size_t N, std::vector<std::complex<float>> &data, std::vector<
     auto *p2 = out.data();
     // stockham algorithm
     // reference: https://github.com/scientificgo/fft/blob/master/stockham.go
-    int n2 = N >> 1;
-    for (int r = n2, l = 1; r >= 1; r >>= 1)
+    const int half = N / 2;
+    // stride: distance between fft pair
+    // eg. N=8 stride=4: (0,4), (1,5), (2,6), (3,7)
+    for (int stride = half; stride >= 1; stride >>= 1)
     {
-        float angle = M_PI / l;
+        // block size: size of can use same w
+        // int block_size = 2 * stride;
+        int block_size = stride << 1;
+        // float angle = 2.0f * M_PI / (N / stride);
+        float angle = block_size * M_PI / N;
         std::complex<float> w_step = std::polar(1.0f, -angle);
+
+        // block count for same w
+        int block_count = N / block_size;
         std::complex<float> w{1.0f, 0.0f};
-        for (int j = 0; j < l; j++)
+        for (int b = 0; b < block_count; b++)
         {
-            int jrs = j * (r << 1);
-            for (int k = jrs, m = jrs >> 1; k < jrs + r; k++)
+            // for stride=n, can reuse w n times
+            for (int w_count = 0; w_count < stride; w_count++)
             {
-                std::complex<float> t = w * p1[k + r];
-                p2[m] = p1[k] + t;
-                p2[m + n2] = p1[k] - t;
-                m++;
+                // std::cout << "in: " << b * block_size + w_count << ", " << b * block_size + w_count + stride << std::endl;
+                // std::cout << "out: " << b * stride + w_count << ", " << b * stride + w_count + half << std::endl;
+                std::complex<float> a = p1[b * block_size + w_count];
+                std::complex<float> wb = w * p1[b * block_size + w_count + stride];
+                p2[b * stride + w_count] = a + wb;
+                p2[b * stride + w_count + half] = a - wb;
             }
+            // update w
             w *= w_step;
         }
-        l <<= 1;
+        // swap p1 and p2
         std::swap(p1, p2);
     }
 
