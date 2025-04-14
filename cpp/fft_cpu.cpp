@@ -4,6 +4,36 @@
 #include <complex>
 #include <cmath>
 #include "io_utils.hpp"
+#include <immintrin.h>
+
+struct complex_t
+{
+    float Re, Im;
+    complex_t(const float &x, const float &y) : Re(x), Im(y) {}
+};
+
+inline complex_t operator+(const complex_t &x, const complex_t &y)
+{
+    return complex_t(x.Re + y.Re, x.Im + y.Im);
+}
+
+inline complex_t operator-(const complex_t &x, const complex_t &y)
+{
+    return complex_t(x.Re - y.Re, x.Im - y.Im);
+}
+
+inline complex_t operator*(const complex_t &x, const complex_t &y)
+{
+    return complex_t(x.Re * y.Re - x.Im * y.Im, x.Re * y.Im + x.Im * y.Re);
+}
+
+// __m128 mulpz2f(const __m128 ab, const __m128 xy)
+// {
+//     const __m128 aa = _mm_unpacklo_ps(ab, ab);      // duplicate real parts
+//     const __m128 bb = _mm_unpackhi_ps(ab, ab);      // duplicate imag parts
+//     const __m128 yx = _mm_shuffle_ps(xy, xy, 0xB1); // swap real/imag of xy
+//     return _mm_addsub_ps(_mm_mul_ps(aa, xy), _mm_mul_ps(bb, yx));
+// }
 
 void fft_naive(size_t N, std::vector<std::complex<float>> &data, std::vector<std::complex<float>> &out)
 {
@@ -110,6 +140,77 @@ void fft_stockham(size_t N, std::vector<std::complex<float>> &data, std::vector<
     }
 }
 
+// reference: http://wwwa.pikara.ne.jp/okojisan/otfft-en/stockham3.html
+// example is DIF, I use DIT
+void fftr(int n, int s, bool eo, complex_t *x, complex_t *y)
+// n  : sequence length
+// s  : stride
+// eo : x is output if eo == 0, y is output if eo == 1
+// x  : input sequence(or output sequence if eo == 0)
+// y  : work area(or output sequence if eo == 1)
+{
+    const int m = n / 2;
+    const float angle = 2 * M_PI / n;
+    if (n == 1)
+    {
+        if (eo)
+            for (int q = 0; q < s; q++)
+                x[q] = y[q];
+    }
+    else
+    {
+        fftr(n / 2, 2 * s, !eo, y, x);
+        complex_t wp{1.0f, 0.0f};
+        const complex_t wp_step{std::cos(angle), std::sin(-angle)};
+        for (int p = 0; p < m; p++)
+        {
+            if (s == 1)
+            {
+                for (int q = 0; q < s; q++)
+                {
+                    const complex_t a = y[q + s * (2 * p + 0)];
+                    const complex_t b = y[q + s * (2 * p + 1)] * wp;
+                    x[q + s * (p + 0)] = a + b;
+                    x[q + s * (p + m)] = a - b;
+                }
+            }
+            else
+            {
+                // for (int q = 0; q < s; q += 2)
+                // {
+                //     const std::complex<float> a = y[q + s * (2 * p + 0)];
+                //     const std::complex<float> b = y[q + s * (2 * p + 1)] * wp;
+                //     const std::complex<float> c = y[(q + 1) + s * (2 * p + 0)];
+                //     const std::complex<float> d = y[(q + 1) + s * (2 * p + 1)] * wp;
+                //     x[q + s * (p + 0)] = a + b;
+                //     x[q + s * (p + m)] = a - b;
+                //     x[(q + 1) + s * (p + 0)] = c + d;
+                //     x[(q + 1) + s * (p + m)] = c - d;
+                // }
+                for (int q = 0; q < s; q += 2)
+                {
+                    const complex_t a = y[q + s * (2 * p + 0)];
+                    const complex_t b = y[q + s * (2 * p + 1)] * wp;
+                    const complex_t c = y[(q + 1) + s * (2 * p + 0)];
+                    const complex_t d = y[(q + 1) + s * (2 * p + 1)] * wp;
+                    x[q + s * (p + 0)] = a + b;
+                    x[q + s * (p + m)] = a - b;
+                    x[(q + 1) + s * (p + 0)] = c + d;
+                    x[(q + 1) + s * (p + m)] = c - d;
+                }
+            }
+            wp = wp * wp_step;
+        }
+    }
+}
+
+void fft_stockham_recursive(size_t N, std::vector<std::complex<float>> &data, std::vector<std::complex<float>> &out)
+{
+
+    fftr(N, 1, 0, (complex_t *)data.data(), (complex_t *)out.data());
+    std::copy(data.begin(), data.end(), out.begin()); // for fft stockham
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -123,9 +224,10 @@ int main(int argc, char *argv[])
     size_t N = data.size();
     std::vector<std::complex<float>> out(N);
 
-    auto start = std::chrono::high_resolution_clock::now();
     // fft_cooley_tukey(N, data, out);
-    fft_stockham(N, data, out);
+    auto start = std::chrono::high_resolution_clock::now();
+    fft_stockham_recursive(N, data, out);
+
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<float> diff = end - start;

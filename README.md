@@ -119,10 +119,35 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
     N=131072  Time=0.003119s  FLOPS=3571.77 MFLOPS
     N=262144  Time=0.006395s  FLOPS=3689.41 MFLOPS
     ```
+- How FFTW plan?
+    - 2, . . . , 16, 32, 64 : direct plan (hard-coded)
+    - n = r*m: radix-r Cooley-Tukey
 - improvements
     - perf found complex resolve spent the most time (~ 50%)
     - self complex type and mm256?
     - explore radix 4 algorithm?
+
+## 4/14 1400-1600
+- Stockham recursive ver. OK, performance similar
+- Try manual complex, complex ops uses ymm
+- ```
+    N=16      Time=0.000014s  FLOPS=22.10 MFLOPS
+    N=32      Time=0.000014s  FLOPS=57.45 MFLOPS
+    N=64      Time=0.000015s  FLOPS=128.09 MFLOPS
+    N=128     Time=0.000022s  FLOPS=200.73 MFLOPS
+    N=256     Time=0.000026s  FLOPS=393.11 MFLOPS
+    N=512     Time=0.000029s  FLOPS=797.76 MFLOPS
+    N=1024    Time=0.000033s  FLOPS=1544.98 MFLOPS
+    N=2048    Time=0.000047s  FLOPS=2406.33 MFLOPS
+    N=4096    Time=0.000086s  FLOPS=2868.44 MFLOPS
+    N=8192    Time=0.000164s  FLOPS=3254.14 MFLOPS
+    N=16384   Time=0.000318s  FLOPS=3609.30 MFLOPS
+    N=32768   Time=0.000678s  FLOPS=3626.12 MFLOPS
+    N=65536   Time=0.001347s  FLOPS=3890.84 MFLOPS
+    N=131072  Time=0.002581s  FLOPS=4316.80 MFLOPS
+    N=262144  Time=0.005040s  FLOPS=4681.23 MFLOPS
+    ```
+
 
 # To set up Python environment:
 python3 -m venv .venv
