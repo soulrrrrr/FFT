@@ -59,74 +59,137 @@ __host__ void get_device_properties()
 // Registers per block: 65536
 // Registers per SM: 65536
 
+__global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
+{
+    __shared__ float2 input[16];
+
+    // each thread stores 4 elements
+    float2 a, b, c, d;
+    int tx = threadIdx.x;
+    a = data[tx];
+    b = data[tx + 4];
+    c = data[tx + 8];
+    d = data[tx + 12];
+
+    // 1st stage: (a, c) -> (a, c), (b, d) -> (b, d)
+    float2 t1 = make_float2(a.x + c.x, a.y + c.y);
+    float2 t2 = make_float2(b.x + d.x, b.y + d.y);
+    float2 t3 = make_float2(a.x - c.x, a.y - c.y);
+    float2 t4 = make_float2(b.x - d.x, b.y - d.y);
+    a = t1;
+    b = t2;
+    c = t3;
+    d = t4;
+
+    // 2nd stage: (a, b) -> (a, c), (c, d) -> (b, d)
+    float angle = -2.0f * M_PI / 4.0f;
+    float2 w_1 = make_float2(cos(angle), sin(angle));
+    float2 t5 = make_float2(a.x + b.x, a.y + b.y);
+    float2 t6 = make_float2(a.x - b.x, a.y - b.y);
+    float2 t7 = make_float2(c.x + (w_1.x * d.x - w_1.y * d.y),
+                            c.y + (w_1.x * d.y + w_1.y * d.x));
+    float2 t8 = make_float2(c.x - (w_1.x * d.x - w_1.y * d.y),
+                            c.y - (w_1.x * d.y + w_1.y * d.x));
+    input[tx] = t5;
+    input[tx + 8] = t6;
+    input[tx + 4] = t7;
+    input[tx + 12] = t8;
+    __syncthreads();
+
+    // 3rd stage, need shared memory
+    int stride = 2;
+    // (a, b) do, (c, d) do
+    int padding = tx >= 2 ? 1 : 0;
+    a = input[(stride * (tx * 4)) % 16 + padding];
+    b = input[(stride * (tx * 4 + 1)) % 16 + padding];
+    c = input[(stride * (tx * 4 + 2)) % 16 + padding];
+    d = input[(stride * (tx * 4 + 3)) % 16 + padding];
+
+    float angle_1 = 2.0f * M_PI / 8.0f * ((tx * 2) % 4);
+    float angle_2 = 2.0f * M_PI / 8.0f * ((tx * 2 + 1) % 4);
+    w_1 = make_float2(cos(angle_1), sin(-angle_1));
+    float2 w_2 = make_float2(cos(angle_2), sin(-angle_2));
+    t1 = make_float2(a.x + (w_1.x * b.x - w_1.y * b.y),
+                     a.y + (w_1.x * b.y + w_1.y * b.x));
+    t2 = make_float2(a.x - (w_1.x * b.x - w_1.y * b.y),
+                     a.y - (w_1.x * b.y + w_1.y * b.x));
+    t3 = make_float2(c.x + (w_2.x * d.x - w_2.y * d.y),
+                     c.y + (w_2.x * d.y + w_2.y * d.x));
+    t4 = make_float2(c.x - (w_2.x * d.x - w_2.y * d.y),
+                     c.y - (w_2.x * d.y + w_2.y * d.x));
+
+    int return_base = padding + 4 * (tx % 2);
+    input[return_base] = t1;
+    input[return_base + 8] = t2;
+    input[return_base + 2] = t3;
+    input[return_base + 10] = t4;
+    __syncthreads();
+
+    // last stage
+    // stride = 1
+    a = input[tx * 4];
+    b = input[tx * 4 + 1];
+    c = input[tx * 4 + 2];
+    d = input[tx * 4 + 3];
+    angle_1 = 2.0f * M_PI / 16.0f * tx * 2;
+    angle_2 = 2.0f * M_PI / 16.0f * (tx * 2 + 1);
+    w_1 = make_float2(cos(angle_1), sin(-angle_1));
+    w_2 = make_float2(cos(angle_2), sin(-angle_2));
+    t1 = make_float2(a.x + (w_1.x * b.x - w_1.y * b.y),
+                     a.y + (w_1.x * b.y + w_1.y * b.x));
+    t2 = make_float2(a.x - (w_1.x * b.x - w_1.y * b.y),
+                     a.y - (w_1.x * b.y + w_1.y * b.x));
+    t3 = make_float2(c.x + (w_2.x * d.x - w_2.y * d.y),
+                     c.y + (w_2.x * d.y + w_2.y * d.x));
+    t4 = make_float2(c.x - (w_2.x * d.x - w_2.y * d.y),
+                     c.y - (w_2.x * d.y + w_2.y * d.x));
+    return_base = tx * 2;
+    input[return_base] = t1;
+    input[return_base + 8] = t2;
+    input[return_base + 1] = t3;
+    input[return_base + 9] = t4;
+    __syncthreads();
+    // Write back from shared memory to global memory
+    out[tx] = input[tx];
+    out[tx + 4] = input[tx + 4];
+    out[tx + 8] = input[tx + 8];
+    out[tx + 12] = input[tx + 12];
+}
+
 __global__ void FFT_4096(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
 {
     constexpr int THREADS = 256;
-    __shared__ float input[(32 + 1) * 256]; // padding to avoid bank conflict
-
+    __shared__ float input[8192 + 8192 / 32]; // padding to avoid bank conflict
+    // Each thread stores
+    //     its own part of the input sequence in its registers and uses
+    //         shared memory as a communication buffer.
     int tx = threadIdx.x;
     int bx = blockIdx.x;
-    int idx = tx;
-    int local_idx = tx;
+    // int idx = tx;
+    // int local_idx = tx;
 
+    // why 2048 no bank conflict but 4096 has bank conflict?
     int ELEMENTS = N;
-    int PADDED_ELEMENTS = ELEMENTS;
 
-    ELEMENTS = 256;
-    int padded_idx = local_idx + local_idx / 32;
+    // int padded_idx = local_idx + local_idx / 32;
     // Load from global memory to shared memory
     for (int i = 0; i < ELEMENTS; i += THREADS)
     {
+        int idx = tx + i;
+        int padded_idx = idx * 2 + idx * 2 / 32;
         // load from global, coalesced
-        float2 c = data[idx];
+        float2 c = data[idx + i];
         // store to shared memory, avoid bank conflict
         input[padded_idx] = c.x;
         input[padded_idx + 1] = c.y;
     }
     __syncthreads();
 
-    // Stockham in shared memory
-    // for (int len = 2; len <= ELEMENTS; len <<= 1)
-    // {
-    //     int half = len >> 1;
-    //     for (int i = 0; i < ELEMENTS; i += THREADS)
-    //     {
-    //         int real_idx = local_idx + i;
-    //         if (real_idx < ELEMENTS)
-    //         {
-    //             int group = real_idx / half;
-    //             int first = group * len + (real_idx % half);
-    //             int second = first + half;
-
-    //             int padded_first = first + first / 32;
-    //             int padded_second = second + second / 32;
-
-    //             if (second < ELEMENTS)
-    //             {
-    //                 float2 u = input[padded_first];
-    //                 float2 v = input[padded_second];
-
-    //                 float angle = -2.0f * M_PI * (real_idx % half) / len;
-    //                 float2 w = {cosf(angle), sinf(angle)};
-
-    //                 // Complex multiply: w * v
-    //                 float2 wv;
-    //                 wv.x = w.x * v.x - w.y * v.y;
-    //                 wv.y = w.x * v.y + w.y * v.x;
-
-    //                 input[padded_first].x = u.x + wv.x;
-    //                 input[padded_first].y = u.y + wv.y;
-    //                 input[padded_second].x = u.x - wv.x;
-    //                 input[padded_second].y = u.y - wv.y;
-    //             }
-    //         }
-    //     }
-    //     __syncthreads();
-    // }
-
     // Write back from shared memory to global memory
     for (int i = 0; i < ELEMENTS; i += THREADS)
     {
+        int idx = tx + i;
+        int padded_idx = idx * 2 + idx / 16 * 2;
         float2 c;
         c.x = input[padded_idx];
         c.y = input[padded_idx + 1];
@@ -159,11 +222,18 @@ int main(int argc, char *argv[])
     float2 *device_out;
     cudaMalloc(&device_out, N * sizeof(float2));
 
-    // Launch kernel
-    dim3 dimBlock(256);
-    dim3 dimGrid(N / 4096);
     auto start = std::chrono::high_resolution_clock::now();
-    FFT_4096<<<dimGrid, dimBlock>>>(device_data, device_out, N);
+    if (N == 16)
+    {
+        // vkfft setting: 1 block, 4 threads
+        FFT_16<<<1, 4>>>(device_data, device_out, N);
+    }
+    else
+    {
+        dim3 dimBlock(256);
+        dim3 dimGrid(N / 4096);
+        FFT_4096<<<dimGrid, dimBlock>>>(device_data, device_out, N);
+    }
     cudaDeviceSynchronize();
     auto end = std::chrono::high_resolution_clock::now();
 
