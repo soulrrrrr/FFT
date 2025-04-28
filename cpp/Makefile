@@ -1,4 +1,5 @@
 CXX = g++
+NVCC = nvcc
 CXXFLAGS = -O3 -std=c++17 -march=native -g
 
 # Paths
@@ -7,7 +8,7 @@ FFTW_INCLUDE = $(HOME)/local/fftw/include
 FFTW_LIB     = $(HOME)/local/fftw/lib
 
 # Targets
-TARGETS = $(BIN_DIR)/fft_cpu $(BIN_DIR)/fftw $(BIN_DIR)/vkfft
+TARGETS = $(BIN_DIR)/fft_cpu $(BIN_DIR)/fftw $(BIN_DIR)/vkfft $(BIN_DIR)/fft_gpu
 
 all: $(TARGETS)
 
@@ -19,6 +20,9 @@ $(BIN_DIR)/fftw: fftw.cpp
 
 $(BIN_DIR)/vkfft: vkfft.cpp utils_VkFFT.cpp
 	$(CXX) $(CXXFLAGS) vkfft.cpp utils_VkFFT.cpp -I. -DVKFFT_BACKEND=1 -lcuda -lcudart -lnvrtc -o $(BIN_DIR)/vkfft
+
+$(BIN_DIR)/fft_gpu: fft_gpu.cu
+	$(NVCC) $(NVCCFLAGS) fft_gpu.cu -o $(BIN_DIR)/fft_gpu
 
 clean:
 	rm -f $(BIN_DIR)/*

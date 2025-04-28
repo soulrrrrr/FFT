@@ -50,18 +50,6 @@ void fft_naive(size_t N, std::vector<std::complex<float>> &data, std::vector<std
     }
 }
 
-inline size_t bit_reverse(size_t x, int log2n)
-{
-    size_t result = 0;
-    for (int i = 0; i < log2n; i++)
-    {
-        result <<= 1;
-        result |= (x & 1);
-        x >>= 1;
-    }
-    return result;
-}
-
 void fft_cooley_tukey(size_t N, std::vector<std::complex<float>> &data, std::vector<std::complex<float>> &out)
 {
     // permute input to bit reversal

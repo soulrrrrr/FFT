@@ -38,10 +38,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    VkGPU *vkGPU = new VkGPU;
+    VkGPU *vkGPU = new VkGPU{};
     VkFFTResult resFFT = VKFFT_SUCCESS;
     CUresult res = CUDA_SUCCESS;
     cudaError_t res2 = cudaSuccess;
+    vkGPU->device_id = 0;
 
     res = cuInit(0);
     if (res != CUDA_SUCCESS)
@@ -71,20 +72,16 @@ int main(int argc, char *argv[])
         return VKFFT_ERROR_FAILED_TO_CREATE_CONTEXT;
     }
 
+    // 讀入資料
+    std::vector<std::complex<float>> data = read_complex_data(argv[1]);
+    size_t N = data.size();
+
     // zero-initialize configuration + FFT application
     VkFFTConfiguration configuration = {};
     VkFFTApplication app = {};
     configuration.FFTdim = 1;
-    configuration.size[0] = std::stoi(argv[2]);
+    configuration.size[0] = (int)N;
     uint64_t bufferSize = sizeof(float) * 2 * configuration.size[0];
-
-    // 讀入資料
-    std::vector<std::complex<float>> data = read_complex_data(argv[1]);
-    if (data.size() != configuration.size[0])
-    {
-        std::cerr << "Error: input size must be " << configuration.size[0] << std::endl;
-        return -1;
-    }
 
     cuFloatComplex *buffer = nullptr;
     res2 = cudaMalloc((void **)&buffer, bufferSize);
@@ -121,6 +118,9 @@ int main(int argc, char *argv[])
         print_vkfft_error(resFFT, "VkFFTAppend (forward)");
         return resFFT;
     }
+    res2 = cudaDeviceSynchronize();
+    if (res2 != cudaSuccess)
+        return VKFFT_ERROR_FAILED_TO_SYNCHRONIZE;
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<float> diff = end - start;
@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
         return resFFT;
     }
 
-    std::string out_file = "data/output_fft_vkfft_" + std::to_string(configuration.size[0]) + ".txt";
+    std::string out_file = "../data/output_fft_vkfft_" + std::to_string(configuration.size[0]) + ".txt";
     write_complex_data(result, out_file);
     // std::cout << "FFT result written to " << out_file << std::endl;
 

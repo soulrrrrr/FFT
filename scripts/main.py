@@ -42,7 +42,7 @@ def benchmark_gpu(path):
         gmean = geometric_mean(times)
         flops = estimate_flops(size, gmean)
 
-        print(f"VkFFT CUDA N={size:<7} Time={gmean:.6f}s  FLOPS={flops/1e6:.2f} MFLOPS")
+        print(f"N={size:<7} Time={gmean:.6f}s  FLOPS={flops/1e6:.2f} MFLOPS")
         results.append((size, gmean, flops))
 
     return results

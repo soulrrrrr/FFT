@@ -9,7 +9,7 @@ def run_gpu_fft(executable_path, n):
         raise FileNotFoundError(f"{input_file} not found. Generate input first.")
 
     result = subprocess.run(
-        [executable_path, input_file, str(n)],
+        [executable_path, input_file],
         capture_output=True,
         text=True
     )

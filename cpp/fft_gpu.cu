@@ -59,9 +59,29 @@ __host__ void get_device_properties()
 // Registers per block: 65536
 // Registers per SM: 65536
 
+__device__ __forceinline__ void radix4(
+    float2 &a, float2 &b, float2 &c, float2 &d)
+{
+    // stage 1: (a,c), (b,d) 各自做 2‐point butterfly
+    float2 s0 = {a.x + c.x, a.y + c.y};
+    float2 s1 = {b.x + d.x, b.y + d.y};
+    float2 d0 = {a.x - c.x, a.y - c.y};
+    float2 d1 = {b.x - d.x, b.y - d.y};
+
+    // stage 2: 合併成真正的 4‐point DFT
+    // X0 = s0 + s1
+    a = {s0.x + s1.x, s0.y + s1.y};
+    // X1 = d0 − j·d1
+    b = {d0.x + d1.y, d0.y - d1.x};
+    // X2 = s0 − s1
+    c = {s0.x - s1.x, s0.y - s1.y};
+    // X3 = d0 + j·d1
+    d = {d0.x - d1.y, d0.y + d1.x};
+}
+
 __global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
 {
-    __shared__ float2 input[16];
+    __shared__ float2 s[16];
 
     // each thread stores 4 elements
     float2 a, b, c, d;
@@ -70,90 +90,39 @@ __global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size
     b = data[tx + 4];
     c = data[tx + 8];
     d = data[tx + 12];
-
-    // 1st stage: (a, c) -> (a, c), (b, d) -> (b, d)
-    float2 t1 = make_float2(a.x + c.x, a.y + c.y);
-    float2 t2 = make_float2(b.x + d.x, b.y + d.y);
-    float2 t3 = make_float2(a.x - c.x, a.y - c.y);
-    float2 t4 = make_float2(b.x - d.x, b.y - d.y);
-    a = t1;
-    b = t2;
-    c = t3;
-    d = t4;
-
-    // 2nd stage: (a, b) -> (a, c), (c, d) -> (b, d)
-    float angle = -2.0f * M_PI / 4.0f;
-    float2 w_1 = make_float2(cos(angle), sin(angle));
-    float2 t5 = make_float2(a.x + b.x, a.y + b.y);
-    float2 t6 = make_float2(a.x - b.x, a.y - b.y);
-    float2 t7 = make_float2(c.x + (w_1.x * d.x - w_1.y * d.y),
-                            c.y + (w_1.x * d.y + w_1.y * d.x));
-    float2 t8 = make_float2(c.x - (w_1.x * d.x - w_1.y * d.y),
-                            c.y - (w_1.x * d.y + w_1.y * d.x));
-    input[tx] = t5;
-    input[tx + 8] = t6;
-    input[tx + 4] = t7;
-    input[tx + 12] = t8;
+    radix4(a, b, c, d);
+    s[tx * 4 + 0] = a;
+    s[tx * 4 + 1] = b;
+    s[tx * 4 + 2] = c;
+    s[tx * 4 + 3] = d;
     __syncthreads();
 
-    // 3rd stage, need shared memory
-    int stride = 2;
-    // (a, b) do, (c, d) do
-    int padding = tx >= 2 ? 1 : 0;
-    a = input[(stride * (tx * 4)) % 16 + padding];
-    b = input[(stride * (tx * 4 + 1)) % 16 + padding];
-    c = input[(stride * (tx * 4 + 2)) % 16 + padding];
-    d = input[(stride * (tx * 4 + 3)) % 16 + padding];
+    // twiddle and transpose
+    const float two_pi = -2.0f * M_PI / 16.0f;
+    a = s[0 * 4 + tx];
+    b = s[1 * 4 + tx];
+    c = s[2 * 4 + tx];
+    d = s[3 * 4 + tx];
+    // 4.2 multiply twiddle W16^(row*col)
+    auto twiddle = [&](float2 &v, int row)
+    {
+        float ang = two_pi * (row * tx);
+        float co = cosf(ang), si = sinf(ang);
+        v = make_float2(v.x * co - v.y * si,
+                        v.x * si + v.y * co);
+    };
+    twiddle(a, 0);
+    twiddle(b, 1);
+    twiddle(c, 2);
+    twiddle(d, 3);
 
-    float angle_1 = 2.0f * M_PI / 8.0f * ((tx * 2) % 4);
-    float angle_2 = 2.0f * M_PI / 8.0f * ((tx * 2 + 1) % 4);
-    w_1 = make_float2(cos(angle_1), sin(-angle_1));
-    float2 w_2 = make_float2(cos(angle_2), sin(-angle_2));
-    t1 = make_float2(a.x + (w_1.x * b.x - w_1.y * b.y),
-                     a.y + (w_1.x * b.y + w_1.y * b.x));
-    t2 = make_float2(a.x - (w_1.x * b.x - w_1.y * b.y),
-                     a.y - (w_1.x * b.y + w_1.y * b.x));
-    t3 = make_float2(c.x + (w_2.x * d.x - w_2.y * d.y),
-                     c.y + (w_2.x * d.y + w_2.y * d.x));
-    t4 = make_float2(c.x - (w_2.x * d.x - w_2.y * d.y),
-                     c.y - (w_2.x * d.y + w_2.y * d.x));
+    radix4(a, b, c, d);
 
-    int return_base = padding + 4 * (tx % 2);
-    input[return_base] = t1;
-    input[return_base + 8] = t2;
-    input[return_base + 2] = t3;
-    input[return_base + 10] = t4;
-    __syncthreads();
-
-    // last stage
-    // stride = 1
-    a = input[tx * 4];
-    b = input[tx * 4 + 1];
-    c = input[tx * 4 + 2];
-    d = input[tx * 4 + 3];
-    angle_1 = 2.0f * M_PI / 16.0f * tx * 2;
-    angle_2 = 2.0f * M_PI / 16.0f * (tx * 2 + 1);
-    w_1 = make_float2(cos(angle_1), sin(-angle_1));
-    w_2 = make_float2(cos(angle_2), sin(-angle_2));
-    t1 = make_float2(a.x + (w_1.x * b.x - w_1.y * b.y),
-                     a.y + (w_1.x * b.y + w_1.y * b.x));
-    t2 = make_float2(a.x - (w_1.x * b.x - w_1.y * b.y),
-                     a.y - (w_1.x * b.y + w_1.y * b.x));
-    t3 = make_float2(c.x + (w_2.x * d.x - w_2.y * d.y),
-                     c.y + (w_2.x * d.y + w_2.y * d.x));
-    t4 = make_float2(c.x - (w_2.x * d.x - w_2.y * d.y),
-                     c.y - (w_2.x * d.y + w_2.y * d.x));
-    return_base = tx * 2;
-    input[return_base] = t1;
-    input[return_base + 8] = t2;
-    input[return_base + 1] = t3;
-    input[return_base + 9] = t4;
-    __syncthreads();
-    // Write back from shared memory to global memory
-    out[tx] = input[tx];
-    out[tx + 4] = input[tx + 4];
-    out[tx + 8] = input[tx + 8];
-    out[tx + 12] = input[tx + 12];
+    // 最後把結果散回一維 out[k]：k = p*4 + cidx
+    out[0 * 4 + tx] = a;
+    out[1 * 4 + tx] = b;
+    out[2 * 4 + tx] = c;
+    out[3 * 4 + tx] = d;
 }
 
 __global__ void FFT_4096(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)

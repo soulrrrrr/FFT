@@ -148,6 +148,48 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
     N=262144  Time=0.005040s  FLOPS=4681.23 MFLOPS
     ```
 
+## 4/25 1200-2000
+- Install vkfft, init fft_gpu
+- VkFFT time:
+- ```
+    N=16      Time=0.000053s  FLOPS=6.06 MFLOPS
+    N=32      Time=0.000054s  FLOPS=14.85 MFLOPS
+    N=64      Time=0.000052s  FLOPS=36.98 MFLOPS
+    N=128     Time=0.000053s  FLOPS=84.94 MFLOPS
+    N=256     Time=0.000055s  FLOPS=187.72 MFLOPS
+    N=512     Time=0.000052s  FLOPS=445.91 MFLOPS
+    N=1024    Time=0.000051s  FLOPS=1008.53 MFLOPS
+    N=2048    Time=0.000054s  FLOPS=2103.39 MFLOPS
+    N=4096    Time=0.000063s  FLOPS=3897.68 MFLOPS
+    ```
+- My Time:
+- ```
+    N=16      Time=0.000572s  FLOPS=0.56 MFLOPS
+    N=32      Time=0.000338s  FLOPS=2.37 MFLOPS
+    N=64      Time=0.000368s  FLOPS=5.22 MFLOPS
+    N=128     Time=0.000337s  FLOPS=13.29 MFLOPS
+    N=256     Time=0.000333s  FLOPS=30.74 MFLOPS
+    N=512     Time=0.000350s  FLOPS=65.83 MFLOPS
+    N=1024    Time=0.000348s  FLOPS=147.17 MFLOPS
+    N=2048    Time=0.000356s  FLOPS=316.75 MFLOPS
+    N=4096    Time=0.000468s  FLOPS=525.36 MFLOPS
+    ```
+- Improvements:
+    - Change to Stockham
+
+## 4/27 1000-1500, 2100-2200
+- Hand written FFT_16
+- Try use more register
+- my implementation ncu profile 8.64 us (but cpp profiling still 1/10 speed N=16      Time=0.000514s  FLOPS=0.62 MFLOPS)
+    - vkfft 3.33us
+- improvement
+    - it's time to implement radix-n fft
+    - maybe start with squared? I don't know
+    - move focus to mixed-radix FFT
+- Radix-4
+    - same memory access pattern
+    - but time 6.72us
+
 
 # To set up Python environment:
 python3 -m venv .venv
