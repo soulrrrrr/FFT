@@ -4,6 +4,7 @@
 #include <complex>
 #include <cmath>
 #include "io_utils.hpp"
+#include "fft_gpu.hpp"
 #include <cuda/std/complex>
 
 using my_t = cuda::std::complex<float>;
@@ -60,8 +61,19 @@ __host__ void get_device_properties()
 // Registers per SM: 65536
 
 __device__ __forceinline__ void radix4(
-    float2 &a, float2 &b, float2 &c, float2 &d)
+    float2 *input, float2 *output)
 {
+    // 4‐point DFT
+    // X0 = a + b + c + d
+    // X1 = a − b + c − d
+    // X2 = a + b − c − d
+    // X3 = a − b − c + d
+
+    float2 a = input[0];
+    float2 b = input[1];
+    float2 c = input[2];
+    float2 d = input[3];
+
     // stage 1: (a,c), (b,d) 各自做 2‐point butterfly
     float2 s0 = {a.x + c.x, a.y + c.y};
     float2 s1 = {b.x + d.x, b.y + d.y};
@@ -70,13 +82,13 @@ __device__ __forceinline__ void radix4(
 
     // stage 2: 合併成真正的 4‐point DFT
     // X0 = s0 + s1
-    a = {s0.x + s1.x, s0.y + s1.y};
+    output[0] = {s0.x + s1.x, s0.y + s1.y};
     // X1 = d0 − j·d1
-    b = {d0.x + d1.y, d0.y - d1.x};
+    output[1] = {d0.x + d1.y, d0.y - d1.x};
     // X2 = s0 − s1
-    c = {s0.x - s1.x, s0.y - s1.y};
+    output[2] = {s0.x - s1.x, s0.y - s1.y};
     // X3 = d0 + j·d1
-    d = {d0.x - d1.y, d0.y + d1.x};
+    output[3] = {d0.x - d1.y, d0.y + d1.x};
 }
 
 __global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
@@ -85,24 +97,25 @@ __global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size
 
     // each thread stores 4 elements
     float2 a, b, c, d;
+    float2 t[4];
     int tx = threadIdx.x;
-    a = data[tx];
-    b = data[tx + 4];
-    c = data[tx + 8];
-    d = data[tx + 12];
-    radix4(a, b, c, d);
-    s[tx * 4 + 0] = a;
-    s[tx * 4 + 1] = b;
-    s[tx * 4 + 2] = c;
-    s[tx * 4 + 3] = d;
-    __syncthreads();
+    for (int i = 0; i < 4; i++)
+    {
+        t[i] = data[tx + i * 4];
+    }
+    // a = data[tx];
+    // b = data[tx + 4];
+    // c = data[tx + 8];
+    // d = data[tx + 12];
+    radix4(t, t);
+    // s[tx * 4 + 0] = a;
+    // s[tx * 4 + 1] = b;
+    // s[tx * 4 + 2] = c;
+    // s[tx * 4 + 3] = d;
 
     // twiddle and transpose
     const float two_pi = -2.0f * M_PI / 16.0f;
-    a = s[0 * 4 + tx];
-    b = s[1 * 4 + tx];
-    c = s[2 * 4 + tx];
-    d = s[3 * 4 + tx];
+
     // 4.2 multiply twiddle W16^(row*col)
     auto twiddle = [&](float2 &v, int row)
     {
@@ -111,18 +124,39 @@ __global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size
         v = make_float2(v.x * co - v.y * si,
                         v.x * si + v.y * co);
     };
-    twiddle(a, 0);
-    twiddle(b, 1);
-    twiddle(c, 2);
-    twiddle(d, 3);
+    for (int i = 0; i < 4; i++)
+    {
+        twiddle(t[i], i);
+    }
+    // twiddle(a, 0);
+    // twiddle(b, 1);
+    // twiddle(c, 2);
+    // twiddle(d, 3);
 
-    radix4(a, b, c, d);
+    // write twiddled back, do transpose
+    for (int i = 0; i < 4; i++)
+    {
+        s[tx * 4 + i] = t[i];
+    }
+    __syncthreads();
+
+    // load column
+    for (int i = 0; i < 4; i++)
+    {
+        t[i] = s[tx + i * 4];
+    }
+
+    radix4(t, t);
 
     // 最後把結果散回一維 out[k]：k = p*4 + cidx
-    out[0 * 4 + tx] = a;
-    out[1 * 4 + tx] = b;
-    out[2 * 4 + tx] = c;
-    out[3 * 4 + tx] = d;
+    for (int i = 0; i < 4; i++)
+    {
+        out[i * 4 + tx] = t[i];
+    }
+    // out[0 * 4 + tx] = a;
+    // out[1 * 4 + tx] = b;
+    // out[2 * 4 + tx] = c;
+    // out[3 * 4 + tx] = d;
 }
 
 __global__ void FFT_4096(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
@@ -191,18 +225,33 @@ int main(int argc, char *argv[])
     float2 *device_out;
     cudaMalloc(&device_out, N * sizeof(float2));
 
+    // planning
+    std::vector<int> plan;
+    plan_fft(plan, N);
+    // print plan
+    std::cout << "FFT plan: ";
+    for (const auto &p : plan)
+        std::cout << p << " ";
+    std::cout << std::endl;
+    int *device_plan;
+    cudaMalloc(&device_plan, plan.size() * sizeof(int));
+    cudaMemcpy(device_plan, plan.data(), plan.size() * sizeof(int), cudaMemcpyHostToDevice);
+
     auto start = std::chrono::high_resolution_clock::now();
-    if (N == 16)
-    {
-        // vkfft setting: 1 block, 4 threads
-        FFT_16<<<1, 4>>>(device_data, device_out, N);
-    }
-    else
-    {
-        dim3 dimBlock(256);
-        dim3 dimGrid(N / 4096);
-        FFT_4096<<<dimGrid, dimBlock>>>(device_data, device_out, N);
-    }
+    // FFT_N<<<1, N / plan[0]>>>(device_data, device_out, device_plan, N);
+    FFT_16<<<1, 4>>>(device_data, device_out, N);
+    // // kernel
+    // if (N == 16)
+    // {
+    //     // vkfft setting: 1 block, 4 threads
+    //     FFT_16<<<1, 4>>>(device_data, device_out, N);
+    // }
+    // else
+    // {
+    //     dim3 dimBlock(256);
+    //     dim3 dimGrid(N / 4096);
+    //     FFT_4096<<<dimGrid, dimBlock>>>(device_data, device_out, N);
+    // }
     cudaDeviceSynchronize();
     auto end = std::chrono::high_resolution_clock::now();
 
