@@ -60,6 +60,29 @@ __host__ void get_device_properties()
 // Registers per block: 65536
 // Registers per SM: 65536
 
+__device__ __forceinline__ void radix2(float2 &a, float2 &b)
+{
+    float2 t;
+    t.x = a.x + b.x;
+    t.y = a.y + b.y;
+
+    b.x = a.x - b.x;
+    b.y = a.y - b.y;
+
+    a = t;
+}
+
+__device__ __forceinline__ void radix2_w(float2 &a, float2 &b, float2 &w)
+{
+    float2 new_a, new_b;
+    new_a.x = a.x + w.x * b.x - w.y * b.y;
+    new_a.y = a.y + w.x * b.y + w.y * b.x;
+    new_b.x = a.x - w.x * b.x + w.y * b.y;
+    new_b.y = a.y - w.x * b.y - w.y * b.x;
+    a = new_a;
+    b = new_b;
+}
+
 __device__ __forceinline__ void radix4(
     float2 *input, float2 *output)
 {
@@ -159,45 +182,48 @@ __global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size
     // out[3 * 4 + tx] = d;
 }
 
-__global__ void FFT_4096(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
+// each thread handles 2 elements
+__global__ void FFT_N(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
 {
-    constexpr int THREADS = 256;
-    __shared__ float input[8192 + 8192 / 32]; // padding to avoid bank conflict
-    // Each thread stores
-    //     its own part of the input sequence in its registers and uses
-    //         shared memory as a communication buffer.
-    int tx = threadIdx.x;
-    int bx = blockIdx.x;
-    // int idx = tx;
-    // int local_idx = tx;
+    int tx = threadIdx.x + blockIdx.x * blockDim.x;
+    int threads = N / 2;
+    if (tx >= threads)
+        return;
+    extern __shared__ float2 s[];
 
-    // why 2048 no bank conflict but 4096 has bank conflict?
-    int ELEMENTS = N;
-
-    // int padded_idx = local_idx + local_idx / 32;
-    // Load from global memory to shared memory
-    for (int i = 0; i < ELEMENTS; i += THREADS)
-    {
-        int idx = tx + i;
-        int padded_idx = idx * 2 + idx * 2 / 32;
-        // load from global, coalesced
-        float2 c = data[idx + i];
-        // store to shared memory, avoid bank conflict
-        input[padded_idx] = c.x;
-        input[padded_idx + 1] = c.y;
-    }
+    // init load
+    s[tx] = data[tx];
+    s[tx + threads] = data[tx + threads];
     __syncthreads();
 
-    // Write back from shared memory to global memory
-    for (int i = 0; i < ELEMENTS; i += THREADS)
+    const int half = N >> 1;
+
+    for (int stride = half; stride >= 1; stride >>= 1)
     {
-        int idx = tx + i;
-        int padded_idx = idx * 2 + idx / 16 * 2;
-        float2 c;
-        c.x = input[padded_idx];
-        c.y = input[padded_idx + 1];
-        out[idx] = c;
+        int block_size = stride << 1;
+        int block_count = N / block_size;
+        int block_idx = tx / stride;
+        int block_offset = tx % stride;
+        // load from shared memory
+        float2 a = s[block_idx * block_size + block_offset];
+        float2 b = s[block_idx * block_size + block_offset + stride];
+
+        // calculate
+        const float two_pi = -2.0f * M_PI / (N / stride);
+        float ang = two_pi * block_idx;
+        // w = (co, si), do a = a+wb, b = a-wb
+        float2 w = make_float2(cosf(ang), sinf(ang));
+        radix2_w(a, b, w);
+
+        // store back to shared memory
+        s[block_idx * stride + block_offset] = a;
+        s[block_idx * stride + block_offset + half] = b;
+        __syncthreads();
     }
+
+    // final store
+    out[tx] = s[tx];
+    out[tx + threads] = s[tx + threads];
 }
 
 int main(int argc, char *argv[])
@@ -229,17 +255,19 @@ int main(int argc, char *argv[])
     std::vector<int> plan;
     plan_fft(plan, N);
     // print plan
-    std::cout << "FFT plan: ";
-    for (const auto &p : plan)
-        std::cout << p << " ";
+    // std::cout << "FFT plan: ";
+    // for (const auto &p : plan)
+    //     std::cout << p << " ";
     std::cout << std::endl;
     int *device_plan;
     cudaMalloc(&device_plan, plan.size() * sizeof(int));
     cudaMemcpy(device_plan, plan.data(), plan.size() * sizeof(int), cudaMemcpyHostToDevice);
 
+    int threads = N / 2;
+    // now max 2048 elements
     auto start = std::chrono::high_resolution_clock::now();
-    // FFT_N<<<1, N / plan[0]>>>(device_data, device_out, device_plan, N);
-    FFT_16<<<1, 4>>>(device_data, device_out, N);
+    FFT_N<<<1, threads, N * sizeof(float)>>>(device_data, device_out, N);
+    // FFT_16<<<1, 4>>>(device_data, device_out, N);
     // // kernel
     // if (N == 16)
     // {
