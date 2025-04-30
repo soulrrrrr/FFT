@@ -254,11 +254,6 @@ int main(int argc, char *argv[])
     // planning
     std::vector<int> plan;
     plan_fft(plan, N);
-    // print plan
-    // std::cout << "FFT plan: ";
-    // for (const auto &p : plan)
-    //     std::cout << p << " ";
-    std::cout << std::endl;
     int *device_plan;
     cudaMalloc(&device_plan, plan.size() * sizeof(int));
     cudaMemcpy(device_plan, plan.data(), plan.size() * sizeof(int), cudaMemcpyHostToDevice);
@@ -266,7 +261,7 @@ int main(int argc, char *argv[])
     int threads = N / 2;
     // now max 2048 elements
     auto start = std::chrono::high_resolution_clock::now();
-    FFT_N<<<1, threads, N * sizeof(float)>>>(device_data, device_out, N);
+    FFT_N<<<1, threads, N * sizeof(float2)>>>(device_data, device_out, N);
     // FFT_16<<<1, 4>>>(device_data, device_out, N);
     // // kernel
     // if (N == 16)
@@ -290,7 +285,7 @@ int main(int argc, char *argv[])
     std::chrono::duration<float> diff = end - start;
     std::cout << diff.count() << std::endl;
 
-    std::string out_file = "../data/output_fft_gpu_" + std::to_string(N) + ".txt";
+    std::string out_file = "data/output_fft_gpu_" + std::to_string(N) + ".txt";
     std::vector<std::complex<float>> result;
     result.reserve(N);
     for (const auto &f2 : host_data)
