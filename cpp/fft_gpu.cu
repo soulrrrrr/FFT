@@ -241,7 +241,6 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
     s[tx + threads * 3] = data[tx + threads * 3];
     __syncthreads();
 
-    const int half = N >> 1;
     const int quarter = N >> 2;
     for (int stride = quarter; stride >= 1; stride >>= 2)
     {
@@ -283,6 +282,96 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
     out[tx + threads * 3] = s[tx + threads * 3];
 }
 
+// all 4 but last is 2
+__global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
+{
+    int tx = threadIdx.x + blockIdx.x * blockDim.x;
+    int threads = N / 4;
+    if (tx >= threads)
+        return;
+    extern __shared__ float2 s[];
+
+    // init load
+    s[tx] = data[tx];
+    s[tx + threads] = data[tx + threads];
+    s[tx + threads * 2] = data[tx + threads * 2];
+    s[tx + threads * 3] = data[tx + threads * 3];
+    __syncthreads();
+
+    const int half = N >> 1;
+    const int quarter = N >> 2;
+    for (int stride = quarter; stride >= 1; stride >>= 2)
+    {
+        int block_size = stride << 2;
+        int block_count = N / block_size;
+        int block_idx = tx / stride;
+        int block_offset = tx % stride;
+        // load from shared memory
+        float2 a = s[block_idx * block_size + block_offset];
+        float2 b = s[block_idx * block_size + block_offset + stride];
+        float2 c = s[block_idx * block_size + block_offset + stride * 2];
+        float2 d = s[block_idx * block_size + block_offset + stride * 3];
+
+        // calculate
+        const float two_pi = -2.0f * M_PI / (N / stride);
+        float ang = two_pi * block_idx;
+        // w = (co, si), do a = a+wb, b = a-wb
+        float2 w1 = make_float2(cosf(ang), sinf(ang));
+        float2 w2 = make_float2(cosf(ang * 2), sinf(ang * 2));
+        float2 w3 = make_float2(cosf(ang * 3), sinf(ang * 3));
+        // radix4_w(a, w1 * b, w2 * c, w3 * d);
+        b = {b.x * w1.x - b.y * w1.y, b.x * w1.y + b.y * w1.x};
+        c = {c.x * w2.x - c.y * w2.y, c.x * w2.y + c.y * w2.x};
+        d = {d.x * w3.x - d.y * w3.y, d.x * w3.y + d.y * w3.x};
+        radix4_w(a, b, c, d);
+
+        // store back to shared memory
+        s[block_idx * stride + block_offset] = a;
+        s[block_idx * stride + block_offset + quarter] = b;
+        s[block_idx * stride + block_offset + quarter * 2] = c;
+        s[block_idx * stride + block_offset + quarter * 3] = d;
+        __syncthreads();
+    }
+
+    // do 2 radix2
+    {
+        int stride = 1;
+        int block_size = stride << 1;
+        int block_count = N / block_size;
+        int block_idx_0 = (tx * 2) / stride;
+        int block_idx_1 = (tx * 2 + 1) / stride;
+        int block_offset = tx % stride;
+        // load from shared memory
+        float2 a = s[block_idx_0 * block_size + block_offset];
+        float2 b = s[block_idx_0 * block_size + block_offset + stride];
+        float2 c = s[block_idx_1 * block_size + block_offset];
+        float2 d = s[block_idx_1 * block_size + block_offset + stride];
+
+        // calculate
+        const float two_pi = -2.0f * M_PI / (N / stride);
+        float ang_b = two_pi * block_idx_0;
+        float ang_d = two_pi * block_idx_1;
+        // w = (co, si), do a = a+wb, b = a-wb
+        float2 w_b = make_float2(cosf(ang_b), sinf(ang_b));
+        float2 w_d = make_float2(cosf(ang_d), sinf(ang_d));
+        radix2_w(a, b, w_b);
+        radix2_w(c, d, w_d);
+
+        // store back to shared memory
+        s[block_idx_0 * stride + block_offset] = a;
+        s[block_idx_0 * stride + block_offset + half] = b;
+        s[block_idx_1 * stride + block_offset] = c;
+        s[block_idx_1 * stride + block_offset + half] = d;
+        __syncthreads();
+    }
+
+    // final store
+    out[tx] = s[tx];
+    out[tx + threads] = s[tx + threads];
+    out[tx + threads * 2] = s[tx + threads * 2];
+    out[tx + threads * 3] = s[tx + threads * 3];
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -309,40 +398,43 @@ int main(int argc, char *argv[])
     cudaMalloc(&device_out, N * sizeof(float2));
 
     // planning
-    std::vector<int> plan;
-    plan_fft(plan, N);
-    int *device_plan;
-    cudaMalloc(&device_plan, plan.size() * sizeof(int));
-    cudaMemcpy(device_plan, plan.data(), plan.size() * sizeof(int), cudaMemcpyHostToDevice);
-
+    // std::vector<int> plan;
+    // plan_fft(plan, N);
+    // int *device_plan;
+    // cudaMalloc(&device_plan, plan.size() * sizeof(int));
+    // cudaMemcpy(device_plan, plan.data(), plan.size() * sizeof(int), cudaMemcpyHostToDevice);
+    auto isPowerOf4 = [](int n)
+    {
+        return n > 0 && (n & (n - 1)) == 0 && (n & 0x55555555);
+    };
     int threads = N / 4;
     // now max 2048 elements
-    auto start = std::chrono::high_resolution_clock::now();
-    FFT_N_4<<<1, threads, N * sizeof(float2)>>>(device_data, device_out, N);
-    // FFT_16<<<1, 4>>>(device_data, device_out, N);
-    // // kernel
-    // if (N == 16)
-    // {
-    //     // vkfft setting: 1 block, 4 threads
-    //     FFT_16<<<1, 4>>>(device_data, device_out, N);
-    // }
-    // else
-    // {
-    //     dim3 dimBlock(256);
-    //     dim3 dimGrid(N / 4096);
-    //     FFT_4096<<<dimGrid, dimBlock>>>(device_data, device_out, N);
-    // }
-    cudaDeviceSynchronize();
-    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float> diff;
+    if (isPowerOf4(N))
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        FFT_N_4<<<1, threads, N * sizeof(float2)>>>(device_data, device_out, N);
+        cudaDeviceSynchronize();
+        auto end = std::chrono::high_resolution_clock::now();
+        diff = end - start;
+    }
+    else
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        FFT_N_4_last_2<<<1, threads, N * sizeof(float2)>>>(device_data, device_out, N);
+        cudaDeviceSynchronize();
+        auto end = std::chrono::high_resolution_clock::now();
+        diff = end - start;
+    }
 
     // Copy result back
     cudaMemcpy(host_data.data(), device_out, N * sizeof(float2), cudaMemcpyDeviceToHost);
 
     // Timing & write output
-    std::chrono::duration<float> diff = end - start;
+    // std::chrono::duration<float> diff = end - start;
     std::cout << diff.count() << std::endl;
 
-    std::string out_file = "../data/output_fft_gpu_" + std::to_string(N) + ".txt";
+    std::string out_file = "data/output_fft_gpu_" + std::to_string(N) + ".txt";
     std::vector<std::complex<float>> result;
     result.reserve(N);
     for (const auto &f2 : host_data)
