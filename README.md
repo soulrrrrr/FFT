@@ -190,6 +190,25 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
     - same memory access pattern
     - but time 6.72us
 
+## 4/29 1300-1700
+- still doesn't figure out how to use 3d fft to write 1d
+- feel stuck
+    - implementing more radix kernel?
+    - use radix 4 (radix 2) to implement all kernel using cooley-tukey
+    - or deal with always 2d?
+    - implementing stockham on gpu first
+
+# 4/30 1300-1500
+- Finished stockham radix-2
+- on 2048: 20.32 us / comparing with VkFFt 14.43us
+
+# 5/2 1000-1300
+- on 2048 no bank: 17.44us
+- the calculation is significant more than VkFFt
+    - my:    4912 fused and 2848 non-fused FP32
+    - vkfft: 776 fused and 2128 non-fused FP32
+
+
 
 # To set up Python environment:
 python3 -m venv .venv

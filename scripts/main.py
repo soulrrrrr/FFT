@@ -46,3 +46,22 @@ def benchmark_gpu(path):
         results.append((size, gmean, flops))
 
     return results
+
+def calculate_max_error_for_sizes():
+    import numpy as np
+    from config import SIZES
+
+    max_errors = {}
+
+    for size in SIZES:
+        try:
+            gpu_output = np.loadtxt(f"data/output_fft_gpu_{size}.txt")
+            cpu_output = np.loadtxt(f"data/output_fft_cpu_{size}.txt")
+
+            max_error = np.max(np.abs(gpu_output - cpu_output))
+            max_errors[size] = max_error
+            print(f"⚠️ Maximum error for size {size}: {max_error}")
+        except Exception as e:
+            print(f"❌ Error calculating maximum error for size {size}: {e}")
+
+    return max_errors

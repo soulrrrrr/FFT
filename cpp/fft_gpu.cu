@@ -228,31 +228,34 @@ __global__ void FFT_N_2(float2 *__restrict__ data, float2 *__restrict__ out, siz
 // each thread handles 4 elements
 __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
 {
+    const int quarter = N >> 2;
     int tx = threadIdx.x + blockIdx.x * blockDim.x;
-    int threads = N / 4;
+    int threads = N >> 2;
     if (tx >= threads)
         return;
     extern __shared__ float2 s[];
 
     // init load
-    s[tx] = data[tx];
-    s[tx + threads] = data[tx + threads];
-    s[tx + threads * 2] = data[tx + threads * 2];
-    s[tx + threads * 3] = data[tx + threads * 3];
+#pragma unroll
+    for (int i = 0; i < 4; i++)
+    {
+        int idx = tx + i * threads;
+        s[idx] = data[idx];
+    }
     __syncthreads();
 
-    const int quarter = N >> 2;
     for (int stride = quarter; stride >= 1; stride >>= 2)
     {
         int block_size = stride << 2;
-        int block_count = N / block_size;
+        // int block_count = N / block_size;
         int block_idx = tx / stride;
         int block_offset = tx % stride;
         // load from shared memory
-        float2 a = s[block_idx * block_size + block_offset];
-        float2 b = s[block_idx * block_size + block_offset + stride];
-        float2 c = s[block_idx * block_size + block_offset + stride * 2];
-        float2 d = s[block_idx * block_size + block_offset + stride * 3];
+        int base_idx = block_idx * block_size + block_offset;
+        float2 a = s[base_idx];
+        float2 b = s[base_idx + stride];
+        float2 c = s[base_idx + stride * 2];
+        float2 d = s[base_idx + stride * 3];
 
         // calculate
         const float two_pi = -2.0f * M_PI / (N / stride);
@@ -268,49 +271,54 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
         radix4_w(a, b, c, d);
 
         // store back to shared memory
-        s[block_idx * stride + block_offset] = a;
-        s[block_idx * stride + block_offset + quarter] = b;
-        s[block_idx * stride + block_offset + quarter * 2] = c;
-        s[block_idx * stride + block_offset + quarter * 3] = d;
+        int base_stride_idx = block_idx * stride + block_offset;
+        s[base_stride_idx] = a;
+        s[base_stride_idx + quarter] = b;
+        s[base_stride_idx + quarter * 2] = c;
+        s[base_stride_idx + quarter * 3] = d;
         __syncthreads();
     }
 
     // final store
-    out[tx] = s[tx];
-    out[tx + threads] = s[tx + threads];
-    out[tx + threads * 2] = s[tx + threads * 2];
-    out[tx + threads * 3] = s[tx + threads * 3];
+#pragma unroll
+    for (int i = 0; i < 4; i++)
+    {
+        int idx = tx + i * threads;
+        out[idx] = s[idx];
+    }
 }
 
 // all 4 but last is 2
 __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
 {
+    const int half = N >> 1;
+    const int quarter = N >> 2;
     int tx = threadIdx.x + blockIdx.x * blockDim.x;
     int threads = N / 4;
     if (tx >= threads)
         return;
     extern __shared__ float2 s[];
 
-    // init load
-    s[tx] = data[tx];
-    s[tx + threads] = data[tx + threads];
-    s[tx + threads * 2] = data[tx + threads * 2];
-    s[tx + threads * 3] = data[tx + threads * 3];
+#pragma unroll
+    for (int i = 0; i < 4; i++)
+    {
+        int idx = tx + i * threads;
+        s[idx] = data[idx];
+    }
     __syncthreads();
 
-    const int half = N >> 1;
-    const int quarter = N >> 2;
     for (int stride = quarter; stride >= 1; stride >>= 2)
     {
         int block_size = stride << 2;
-        int block_count = N / block_size;
+        // int block_count = N / block_size;
         int block_idx = tx / stride;
         int block_offset = tx % stride;
         // load from shared memory
-        float2 a = s[block_idx * block_size + block_offset];
-        float2 b = s[block_idx * block_size + block_offset + stride];
-        float2 c = s[block_idx * block_size + block_offset + stride * 2];
-        float2 d = s[block_idx * block_size + block_offset + stride * 3];
+        int base_idx = block_idx * block_size + block_offset;
+        float2 a = s[base_idx];
+        float2 b = s[base_idx + stride];
+        float2 c = s[base_idx + stride * 2];
+        float2 d = s[base_idx + stride * 3];
 
         // calculate
         const float two_pi = -2.0f * M_PI / (N / stride);
@@ -326,10 +334,11 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
         radix4_w(a, b, c, d);
 
         // store back to shared memory
-        s[block_idx * stride + block_offset] = a;
-        s[block_idx * stride + block_offset + quarter] = b;
-        s[block_idx * stride + block_offset + quarter * 2] = c;
-        s[block_idx * stride + block_offset + quarter * 3] = d;
+        int base_stride_idx = block_idx * stride + block_offset;
+        s[base_stride_idx] = a;
+        s[base_stride_idx + quarter] = b;
+        s[base_stride_idx + quarter * 2] = c;
+        s[base_stride_idx + quarter * 3] = d;
         __syncthreads();
     }
 
@@ -337,7 +346,7 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
     {
         int stride = 1;
         int block_size = stride << 1;
-        int block_count = N / block_size;
+        // int block_count = N / block_size;
         int block_idx_0 = (tx * 2) / stride;
         int block_idx_1 = (tx * 2 + 1) / stride;
         int block_offset = tx % stride;
@@ -365,11 +374,13 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
         __syncthreads();
     }
 
-    // final store
-    out[tx] = s[tx];
-    out[tx + threads] = s[tx + threads];
-    out[tx + threads * 2] = s[tx + threads * 2];
-    out[tx + threads * 3] = s[tx + threads * 3];
+// final store
+#pragma unroll
+    for (int i = 0; i < 4; i++)
+    {
+        int idx = tx + i * threads;
+        out[idx] = s[idx];
+    }
 }
 
 int main(int argc, char *argv[])
@@ -403,17 +414,19 @@ int main(int argc, char *argv[])
     // int *device_plan;
     // cudaMalloc(&device_plan, plan.size() * sizeof(int));
     // cudaMemcpy(device_plan, plan.data(), plan.size() * sizeof(int), cudaMemcpyHostToDevice);
+
     auto isPowerOf4 = [](int n)
     {
         return n > 0 && (n & (n - 1)) == 0 && (n & 0x55555555);
     };
     int threads = N / 4;
+    int shared_mem_size = (N) * sizeof(float2);
     // now max 2048 elements
     std::chrono::duration<float> diff;
     if (isPowerOf4(N))
     {
         auto start = std::chrono::high_resolution_clock::now();
-        FFT_N_4<<<1, threads, N * sizeof(float2)>>>(device_data, device_out, N);
+        FFT_N_4<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
         cudaDeviceSynchronize();
         auto end = std::chrono::high_resolution_clock::now();
         diff = end - start;
@@ -421,7 +434,7 @@ int main(int argc, char *argv[])
     else
     {
         auto start = std::chrono::high_resolution_clock::now();
-        FFT_N_4_last_2<<<1, threads, N * sizeof(float2)>>>(device_data, device_out, N);
+        FFT_N_4_last_2<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
         cudaDeviceSynchronize();
         auto end = std::chrono::high_resolution_clock::now();
         diff = end - start;

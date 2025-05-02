@@ -1,7 +1,7 @@
 # run.py
 
 import argparse
-from scripts.main import benchmark_cpu, benchmark_gpu  # CPU benchmark
+from scripts.main import benchmark_cpu, benchmark_gpu, calculate_max_error_for_sizes  # CPU benchmark
 from config import EXECUTABLE_FFTW, EXECUTABLE_FFT_CPU, EXECUTABLE_VKFFT, EXECUTABLE_FFT_GPU
 
 import sys
@@ -51,6 +51,10 @@ def main():
     if args.gpu or args.all:
         print("🏁 Running GPU implementation...")
         vkfft_results = benchmark_gpu(EXECUTABLE_FFT_GPU)
+
+        # Calculate max error after GPU benchmark
+        print("⚠️ Calculating maximum error for GPU benchmark...")
+        calculate_max_error_for_sizes()
 
     if args.out:
         log_path = args.out.replace(".csv", ".log")
