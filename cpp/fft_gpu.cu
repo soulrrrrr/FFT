@@ -60,6 +60,25 @@ __host__ void get_device_properties()
 // Registers per block: 65536
 // Registers per SM: 65536
 
+// complex ops
+__device__ __forceinline__ float2 complex_add(const float2 &a, const float2 &b)
+{
+    return {a.x + b.x, a.y + b.y};
+}
+
+__device__ __forceinline__ float2 complex_sub(const float2 &a, const float2 &b)
+{
+    return {a.x - b.x, a.y - b.y};
+}
+
+__device__ __forceinline__ float2 complex_mul(const float2 &a, const float2 &b)
+{
+    // (a.x + i a.y) * (b.x + i b.y)
+    return {
+        a.x * b.x - a.y * b.y,
+        a.x * b.y + a.y * b.x};
+}
+
 __device__ __forceinline__ void radix2(float2 &a, float2 &b)
 {
     float2 t;
@@ -72,7 +91,7 @@ __device__ __forceinline__ void radix2(float2 &a, float2 &b)
     a = t;
 }
 
-__device__ __forceinline__ void radix2_w(float2 &a, float2 &b, float2 &w)
+__device__ __forceinline__ void radix2_w(float2 &a, float2 &b, const float2 &w)
 {
     float2 new_a, new_b;
     new_a.x = a.x + w.x * b.x - w.y * b.y;
@@ -84,10 +103,14 @@ __device__ __forceinline__ void radix2_w(float2 &a, float2 &b, float2 &w)
 }
 
 __device__ __forceinline__ void radix4_w(
-    float2 &a, float2 &b, float2 &c, float2 &d)
+    float2 &a, float2 &b, float2 &c, float2 &d, const float2 &w)
 {
     // 4‐point DFT
     // w0 = 1
+    // w1 = w
+    const float2 w2 = complex_mul(w, w);  // w2 = w^2
+    const float2 w3 = complex_mul(w, w2); // w3 = w^3
+
     // reference: https://www.cmlab.csie.ntu.edu.tw/cml/dsp/training/coding/transform/fft.html
 
     // stage 1: 2nd matrix * input
@@ -95,11 +118,14 @@ __device__ __forceinline__ void radix4_w(
     // float2 t1 = a - c;
     // float2 t2 = b + d;
     // float2 t3 = b - d;
+    b = complex_mul(w, b);
+    c = complex_mul(w2, c);
+    d = complex_mul(w3, d);
 
-    float2 t0 = {a.x + c.x, a.y + c.y};
-    float2 t1 = {a.x - c.x, a.y - c.y};
-    float2 t2 = {b.x + d.x, b.y + d.y};
-    float2 t3 = {b.x - d.x, b.y - d.y};
+    float2 t0 = complex_add(a, c);
+    float2 t1 = complex_sub(a, c);
+    float2 t2 = complex_add(b, d);
+    float2 t3 = complex_sub(b, d);
 
     // stage 2: 1st matrix * stage 1
     // a = t0 + t2
@@ -107,78 +133,11 @@ __device__ __forceinline__ void radix4_w(
     // c = t0 - t2
     // d = t1 + j * t3
     // j = (0, 1)
-    a = {t0.x + t2.x, t0.y + t2.y};
-    b = {t1.x + t3.y, t1.y - t3.x};
-    c = {t0.x - t2.x, t0.y - t2.y};
-    d = {t1.x - t3.y, t1.y + t3.x};
-}
-
-__global__ void FFT_16(float2 *__restrict__ data, float2 *__restrict__ out, size_t N)
-{
-    // __shared__ float2 s[16];
-
-    // // each thread stores 4 elements
-    // float2 a, b, c, d;
-    // float2 t[4];
-    // int tx = threadIdx.x;
-    // for (int i = 0; i < 4; i++)
-    // {
-    //     t[i] = data[tx + i * 4];
-    // }
-    // // a = data[tx];
-    // // b = data[tx + 4];
-    // // c = data[tx + 8];
-    // // d = data[tx + 12];
-    // radix4(t, t);
-    // // s[tx * 4 + 0] = a;
-    // // s[tx * 4 + 1] = b;
-    // // s[tx * 4 + 2] = c;
-    // // s[tx * 4 + 3] = d;
-
-    // // twiddle and transpose
-    // const float two_pi = -2.0f * M_PI / 16.0f;
-
-    // // 4.2 multiply twiddle W16^(row*col)
-    // auto twiddle = [&](float2 &v, int row)
-    // {
-    //     float ang = two_pi * (row * tx);
-    //     float co = cosf(ang), si = sinf(ang);
-    //     v = make_float2(v.x * co - v.y * si,
-    //                     v.x * si + v.y * co);
-    // };
-    // for (int i = 0; i < 4; i++)
-    // {
-    //     twiddle(t[i], i);
-    // }
-    // // twiddle(a, 0);
-    // // twiddle(b, 1);
-    // // twiddle(c, 2);
-    // // twiddle(d, 3);
-
-    // // write twiddled back, do transpose
-    // for (int i = 0; i < 4; i++)
-    // {
-    //     s[tx * 4 + i] = t[i];
-    // }
-    // __syncthreads();
-
-    // // load column
-    // for (int i = 0; i < 4; i++)
-    // {
-    //     t[i] = s[tx + i * 4];
-    // }
-
-    // radix4(t, t);
-
-    // // 最後把結果散回一維 out[k]：k = p*4 + cidx
-    // for (int i = 0; i < 4; i++)
-    // {
-    //     out[i * 4 + tx] = t[i];
-    // }
-    // // out[0 * 4 + tx] = a;
-    // // out[1 * 4 + tx] = b;
-    // // out[2 * 4 + tx] = c;
-    // // out[3 * 4 + tx] = d;
+    float2 jt3 = {-t3.y, t3.x}; // j * t3
+    a = complex_add(t0, t2);
+    b = complex_sub(t1, jt3);
+    c = complex_sub(t0, t2);
+    d = complex_add(t1, jt3);
 }
 
 // each thread handles 2 elements
@@ -200,7 +159,7 @@ __global__ void FFT_N_2(float2 *__restrict__ data, float2 *__restrict__ out, siz
     for (int stride = half; stride >= 1; stride >>= 1)
     {
         int block_size = stride << 1;
-        int block_count = N / block_size;
+        // int block_count = N / block_size;
         int block_idx = tx / stride;
         int block_offset = tx % stride;
         // load from shared memory
@@ -236,16 +195,16 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
     extern __shared__ float2 s[];
 
     // init load
-#pragma unroll
+    // #pragma unroll
     for (int i = 0; i < 4; i++)
     {
         int idx = tx + i * threads;
         s[idx] = data[idx];
     }
-    __syncthreads();
 
     for (int stride = quarter; stride >= 1; stride >>= 2)
     {
+        __syncthreads();
         int block_size = stride << 2;
         // int block_count = N / block_size;
         int block_idx = tx / stride;
@@ -256,19 +215,22 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
         float2 b = s[base_idx + stride];
         float2 c = s[base_idx + stride * 2];
         float2 d = s[base_idx + stride * 3];
+        __syncthreads();
 
         // calculate
         const float two_pi = -2.0f * M_PI / (N / stride);
         float ang = two_pi * block_idx;
+        // float ang2 = two_pi * (block_idx * 2);
+        // float ang3 = two_pi * (block_idx * 3);
         // w = (co, si), do a = a+wb, b = a-wb
-        float2 w1 = make_float2(cosf(ang), sinf(ang));
-        float2 w2 = make_float2(cosf(ang * 2), sinf(ang * 2));
-        float2 w3 = make_float2(cosf(ang * 3), sinf(ang * 3));
+        float2 w = make_float2(cosf(ang), sinf(ang));
+        // float2 w2 = make_float2(cosf(ang2), sinf(ang2));
+        // float2 w3 = make_float2(cosf(ang3), sinf(ang3));
         // radix4_w(a, w1 * b, w2 * c, w3 * d);
-        b = {b.x * w1.x - b.y * w1.y, b.x * w1.y + b.y * w1.x};
-        c = {c.x * w2.x - c.y * w2.y, c.x * w2.y + c.y * w2.x};
-        d = {d.x * w3.x - d.y * w3.y, d.x * w3.y + d.y * w3.x};
-        radix4_w(a, b, c, d);
+        // b = {b.x * w1.x - b.y * w1.y, b.x * w1.y + b.y * w1.x};
+        // c = {c.x * w2.x - c.y * w2.y, c.x * w2.y + c.y * w2.x};
+        // d = {d.x * w3.x - d.y * w3.y, d.x * w3.y + d.y * w3.x};
+        radix4_w(a, b, c, d, w);
 
         // store back to shared memory
         int base_stride_idx = block_idx * stride + block_offset;
@@ -276,11 +238,11 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
         s[base_stride_idx + quarter] = b;
         s[base_stride_idx + quarter * 2] = c;
         s[base_stride_idx + quarter * 3] = d;
-        __syncthreads();
     }
+    __syncthreads();
 
     // final store
-#pragma unroll
+    // #pragma unroll
     for (int i = 0; i < 4; i++)
     {
         int idx = tx + i * threads;
@@ -294,21 +256,22 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
     const int half = N >> 1;
     const int quarter = N >> 2;
     int tx = threadIdx.x + blockIdx.x * blockDim.x;
-    int threads = N / 4;
+    int threads = N >> 2;
     if (tx >= threads)
         return;
     extern __shared__ float2 s[];
 
-#pragma unroll
+    // init load
+    // #pragma unroll
     for (int i = 0; i < 4; i++)
     {
         int idx = tx + i * threads;
         s[idx] = data[idx];
     }
-    __syncthreads();
 
     for (int stride = quarter; stride >= 1; stride >>= 2)
     {
+        __syncthreads();
         int block_size = stride << 2;
         // int block_count = N / block_size;
         int block_idx = tx / stride;
@@ -319,19 +282,22 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
         float2 b = s[base_idx + stride];
         float2 c = s[base_idx + stride * 2];
         float2 d = s[base_idx + stride * 3];
+        __syncthreads();
 
         // calculate
         const float two_pi = -2.0f * M_PI / (N / stride);
         float ang = two_pi * block_idx;
+        // float ang2 = two_pi * (block_idx * 2);
+        // float ang3 = two_pi * (block_idx * 3);
         // w = (co, si), do a = a+wb, b = a-wb
-        float2 w1 = make_float2(cosf(ang), sinf(ang));
-        float2 w2 = make_float2(cosf(ang * 2), sinf(ang * 2));
-        float2 w3 = make_float2(cosf(ang * 3), sinf(ang * 3));
+        float2 w = make_float2(cosf(ang), sinf(ang));
+        // float2 w2 = make_float2(cosf(ang2), sinf(ang2));
+        // float2 w3 = make_float2(cosf(ang3), sinf(ang3));
         // radix4_w(a, w1 * b, w2 * c, w3 * d);
-        b = {b.x * w1.x - b.y * w1.y, b.x * w1.y + b.y * w1.x};
-        c = {c.x * w2.x - c.y * w2.y, c.x * w2.y + c.y * w2.x};
-        d = {d.x * w3.x - d.y * w3.y, d.x * w3.y + d.y * w3.x};
-        radix4_w(a, b, c, d);
+        // b = {b.x * w1.x - b.y * w1.y, b.x * w1.y + b.y * w1.x};
+        // c = {c.x * w2.x - c.y * w2.y, c.x * w2.y + c.y * w2.x};
+        // d = {d.x * w3.x - d.y * w3.y, d.x * w3.y + d.y * w3.x};
+        radix4_w(a, b, c, d, w);
 
         // store back to shared memory
         int base_stride_idx = block_idx * stride + block_offset;
@@ -339,48 +305,47 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
         s[base_stride_idx + quarter] = b;
         s[base_stride_idx + quarter * 2] = c;
         s[base_stride_idx + quarter * 3] = d;
-        __syncthreads();
     }
+    __syncthreads();
 
     // do 2 radix2
-    {
-        int stride = 1;
-        int block_size = stride << 1;
-        // int block_count = N / block_size;
-        int block_idx_0 = (tx * 2) / stride;
-        int block_idx_1 = (tx * 2 + 1) / stride;
-        int block_offset = tx % stride;
-        // load from shared memory
-        float2 a = s[block_idx_0 * block_size + block_offset];
-        float2 b = s[block_idx_0 * block_size + block_offset + stride];
-        float2 c = s[block_idx_1 * block_size + block_offset];
-        float2 d = s[block_idx_1 * block_size + block_offset + stride];
+    int stride = 1;
+    int block_size = 2;
+    // int block_count = N / block_size;
+    int block_idx_0 = 2 * tx;
+    int block_idx_1 = block_idx_0 + 1;
+    int block_offset = tx % stride;
+    // load from shared memory
+    float2 a = s[block_idx_0 * block_size + block_offset];
+    float2 b = s[block_idx_0 * block_size + block_offset + stride];
+    float2 c = s[block_idx_1 * block_size + block_offset];
+    float2 d = s[block_idx_1 * block_size + block_offset + stride];
 
-        // calculate
-        const float two_pi = -2.0f * M_PI / (N / stride);
-        float ang_b = two_pi * block_idx_0;
-        float ang_d = two_pi * block_idx_1;
-        // w = (co, si), do a = a+wb, b = a-wb
-        float2 w_b = make_float2(cosf(ang_b), sinf(ang_b));
-        float2 w_d = make_float2(cosf(ang_d), sinf(ang_d));
-        radix2_w(a, b, w_b);
-        radix2_w(c, d, w_d);
+    __syncthreads();
+    // calculate
+    const float two_pi = -2.0f * M_PI / N;
+    float ang_b = two_pi * block_idx_0;
+    float ang_d = two_pi * block_idx_1;
+    // w = (co, si), do a = a+wb, b = a-wb
+    float2 w_b = make_float2(cosf(ang_b), sinf(ang_b));
+    float2 w_d = make_float2(cosf(ang_d), sinf(ang_d));
+    radix2_w(a, b, w_b);
+    radix2_w(c, d, w_d);
 
-        // store back to shared memory
-        s[block_idx_0 * stride + block_offset] = a;
-        s[block_idx_0 * stride + block_offset + half] = b;
-        s[block_idx_1 * stride + block_offset] = c;
-        s[block_idx_1 * stride + block_offset + half] = d;
-        __syncthreads();
-    }
+    // store back to global memory
+    out[block_idx_0 * stride + block_offset] = a;
+    out[block_idx_0 * stride + block_offset + half] = b;
+    out[block_idx_1 * stride + block_offset] = c;
+    out[block_idx_1 * stride + block_offset + half] = d;
 
-// final store
-#pragma unroll
-    for (int i = 0; i < 4; i++)
-    {
-        int idx = tx + i * threads;
-        out[idx] = s[idx];
-    }
+    // __syncthreads();
+    // final store
+    // #pragma unroll
+    // for (int i = 0; i < 4; i++)
+    // {
+    //     int idx = tx + i * threads;
+    //     out[idx] = s[idx];
+    // }
 }
 
 int main(int argc, char *argv[])
@@ -419,25 +384,45 @@ int main(int argc, char *argv[])
     {
         return n > 0 && (n & (n - 1)) == 0 && (n & 0x55555555);
     };
-    int threads = N / 4;
+    int threads;
     int shared_mem_size = (N) * sizeof(float2);
     // now max 2048 elements
     std::chrono::duration<float> diff;
-    if (isPowerOf4(N))
+    // radix
+    constexpr int RADIX = 4;
+    if (RADIX == 2)
     {
+        threads = N / 2;
         auto start = std::chrono::high_resolution_clock::now();
-        FFT_N_4<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
+        FFT_N_2<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
         cudaDeviceSynchronize();
         auto end = std::chrono::high_resolution_clock::now();
         diff = end - start;
     }
+    else if (RADIX == 4)
+    {
+        threads = N / 4;
+        if (isPowerOf4(N))
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            FFT_N_4<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
+            cudaDeviceSynchronize();
+            auto end = std::chrono::high_resolution_clock::now();
+            diff = end - start;
+        }
+        else
+        {
+            auto start = std::chrono::high_resolution_clock::now();
+            FFT_N_4_last_2<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
+            cudaDeviceSynchronize();
+            auto end = std::chrono::high_resolution_clock::now();
+            diff = end - start;
+        }
+    }
     else
     {
-        auto start = std::chrono::high_resolution_clock::now();
-        FFT_N_4_last_2<<<1, threads, shared_mem_size>>>(device_data, device_out, N);
-        cudaDeviceSynchronize();
-        auto end = std::chrono::high_resolution_clock::now();
-        diff = end - start;
+        std::cerr << "Unsupported radix" << std::endl;
+        return 1;
     }
 
     // Copy result back
