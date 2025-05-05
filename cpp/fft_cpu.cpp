@@ -27,14 +27,6 @@ inline complex_t operator*(const complex_t &x, const complex_t &y)
     return complex_t(x.Re * y.Re - x.Im * y.Im, x.Re * y.Im + x.Im * y.Re);
 }
 
-// __m128 mulpz2f(const __m128 ab, const __m128 xy)
-// {
-//     const __m128 aa = _mm_unpacklo_ps(ab, ab);      // duplicate real parts
-//     const __m128 bb = _mm_unpackhi_ps(ab, ab);      // duplicate imag parts
-//     const __m128 yx = _mm_shuffle_ps(xy, xy, 0xB1); // swap real/imag of xy
-//     return _mm_addsub_ps(_mm_mul_ps(aa, xy), _mm_mul_ps(bb, yx));
-// }
-
 void fft_naive(size_t N, std::vector<std::complex<float>> &data, std::vector<std::complex<float>> &out)
 {
     for (int k = 0; k < N; k++)
