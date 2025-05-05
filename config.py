@@ -7,7 +7,7 @@ EXECUTABLE_VKFFT = "./bin/vkfft"  # for future
 EXECUTABLE_FFT_GPU = "./bin/fft_gpu"
 
 # Benchmark sizes and repetitions
-SIZES = [2**i for i in range(3, 12)]   # 2^4 to 2^18
+SIZES = [2**i for i in range(4, 19)]   # 2^4 to 2^18
 NUM_TRIALS = 10
 
 # Output
