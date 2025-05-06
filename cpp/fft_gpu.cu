@@ -194,8 +194,8 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
         return;
     extern __shared__ float2 s[];
 
-    // init load
-    // #pragma unroll
+// init load
+#pragma unroll
     for (int i = 0; i < 4; i++)
     {
         int idx = tx + i * threads;
@@ -205,12 +205,12 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
     for (int stride = quarter; stride >= 1; stride >>= 2)
     {
         __syncthreads();
-        int block_size = stride << 2;
+        const int block_size = stride << 2;
         // int block_count = N / block_size;
-        int block_idx = tx / stride;
-        int block_offset = tx % stride;
+        const int block_idx = tx / stride;
+        const int block_offset = tx % stride;
         // load from shared memory
-        int base_idx = block_idx * block_size + block_offset;
+        const int base_idx = block_idx * block_size + block_offset;
         float2 a = s[base_idx];
         float2 b = s[base_idx + stride];
         float2 c = s[base_idx + stride * 2];
@@ -219,21 +219,12 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
 
         // calculate
         const float two_pi = -2.0f * M_PI / (N / stride);
-        float ang = two_pi * block_idx;
-        // float ang2 = two_pi * (block_idx * 2);
-        // float ang3 = two_pi * (block_idx * 3);
-        // w = (co, si), do a = a+wb, b = a-wb
-        float2 w = make_float2(cosf(ang), sinf(ang));
-        // float2 w2 = make_float2(cosf(ang2), sinf(ang2));
-        // float2 w3 = make_float2(cosf(ang3), sinf(ang3));
-        // radix4_w(a, w1 * b, w2 * c, w3 * d);
-        // b = {b.x * w1.x - b.y * w1.y, b.x * w1.y + b.y * w1.x};
-        // c = {c.x * w2.x - c.y * w2.y, c.x * w2.y + c.y * w2.x};
-        // d = {d.x * w3.x - d.y * w3.y, d.x * w3.y + d.y * w3.x};
+        const float ang = two_pi * block_idx;
+        const float2 w = make_float2(cosf(ang), sinf(ang));
         radix4_w(a, b, c, d, w);
 
         // store back to shared memory
-        int base_stride_idx = block_idx * stride + block_offset;
+        const int base_stride_idx = block_idx * stride + block_offset;
         s[base_stride_idx] = a;
         s[base_stride_idx + quarter] = b;
         s[base_stride_idx + quarter * 2] = c;
@@ -241,8 +232,8 @@ __global__ void FFT_N_4(float2 *__restrict__ data, float2 *__restrict__ out, siz
     }
     __syncthreads();
 
-    // final store
-    // #pragma unroll
+// final store
+#pragma unroll
     for (int i = 0; i < 4; i++)
     {
         int idx = tx + i * threads;
@@ -261,8 +252,8 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
         return;
     extern __shared__ float2 s[];
 
-    // init load
-    // #pragma unroll
+// init load
+#pragma unroll
     for (int i = 0; i < 4; i++)
     {
         int idx = tx + i * threads;
@@ -321,7 +312,6 @@ __global__ void FFT_N_4_last_2(float2 *__restrict__ data, float2 *__restrict__ o
     float2 c = s[block_idx_1 * block_size + block_offset];
     float2 d = s[block_idx_1 * block_size + block_offset + stride];
 
-    __syncthreads();
     // calculate
     const float two_pi = -2.0f * M_PI / N;
     float ang_b = two_pi * block_idx_0;

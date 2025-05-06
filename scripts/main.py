@@ -47,7 +47,7 @@ def benchmark_gpu(path):
 
     return results
 
-def calculate_max_error_for_sizes():
+def calculate_max_error_for_sizes(test):
     import numpy as np
     from config import SIZES
 
@@ -55,8 +55,8 @@ def calculate_max_error_for_sizes():
 
     for size in SIZES:
         try:
-            gpu_output = np.loadtxt(f"data/output_fft_gpu_{size}.txt")
-            cpu_output = np.loadtxt(f"data/output_fft_cpu_{size}.txt")
+            gpu_output = np.loadtxt(f"data/output_{test}_{size}.txt")
+            cpu_output = np.loadtxt(f"data/output_fftw_{size}.txt")
 
             max_error = np.max(np.abs(gpu_output - cpu_output))
             max_errors[size] = max_error

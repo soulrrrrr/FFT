@@ -54,7 +54,7 @@ def main():
 
         # Calculate max error after GPU benchmark
         print("⚠️ Calculating maximum error for GPU benchmark...")
-        calculate_max_error_for_sizes()
+        calculate_max_error_for_sizes("fft_gpu")
 
     if args.out:
         log_path = args.out.replace(".csv", ".log")
