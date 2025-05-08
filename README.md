@@ -208,8 +208,9 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
     - my:    4912 fused and 2848 non-fused FP32
     - vkfft: 776 fused and 2128 non-fused FP32
 
-# 5/4
-- 
+# 5/7
+- Some result can beat VkFFT.
+- Poster and Report finished.
 
 
 
