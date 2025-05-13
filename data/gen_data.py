@@ -6,7 +6,7 @@ output_dir = "."
 os.makedirs(output_dir, exist_ok=True)
 
 # Generate complex input signals for 2^4 to 2^18
-for exp in range(2, 4):
+for exp in range(4, 19):
     N = 2**exp
     real_part = np.random.uniform(-1, 1, N).astype(np.float32)
     imag_part = np.random.uniform(-1, 1, N).astype(np.float32)

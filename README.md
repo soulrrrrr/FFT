@@ -198,17 +198,17 @@ N=262144  Time=0.020347s  FLOPS=1159.51 MFLOPS
     - or deal with always 2d?
     - implementing stockham on gpu first
 
-# 4/30 1300-1500
+## 4/30 1300-1500
 - Finished stockham radix-2
 - on 2048: 20.32 us / comparing with VkFFt 14.43us
 
-# 5/2 1000-1300
+## 5/2 1000-1300
 - on 2048 no bank: 17.44us
 - the calculation is significant more than VkFFt
     - my:    4912 fused and 2848 non-fused FP32
     - vkfft: 776 fused and 2128 non-fused FP32
 
-# 5/7
+## 5/7
 - Some result can beat VkFFT.
 - Poster and Report finished.
 
